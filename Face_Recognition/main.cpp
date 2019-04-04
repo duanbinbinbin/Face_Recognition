@@ -1,18 +1,13 @@
-#include <iostream>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <opencv2/opencv.hpp>
-#include <opencv2/face.hpp>
-using namespace std;
-using namespace cv;
-using namespace cv::face;
+#include "public.h"
+#include "preprocessFace.h" 
 
 const char* faceCascadeFilename = "lbpcascade_frontalface.xml";
 const char* eyeCascadeFilename1 = "haarcascade_eye.xml";
 const char* eyeCascadeFilename2 = "haarcascade_eye_tree_eyeglasses.xml";
 
 const char* windowName = "WebcamFaceRec";
+// 分别对脸部左右两侧进行预处理，以防一侧光线较强
+const bool preprocessLeftAndRightSeparately = true;
 
 // 尝试设置相机分辨率。 请注意，这仅适用于某些计算机上的某些相机，仅适用于某些驱动程序，所以不要依赖它来工作！
 const int DESIRED_CAMERA_WIDTH = 640;
@@ -61,17 +56,17 @@ void initDetectors(CascadeClassifier& faceCascade, CascadeClassifier& eyeCascade
 		exit(1);
 	}
 
-	faceCascade.load(eyeCascadeFilename1);
-	if (faceCascade.empty())
+	eyeCascade1.load(eyeCascadeFilename1);
+	if (eyeCascade1.empty())
 	{
-		printf("ERROR: Could not load Face Detection cascade classifier %s.\n", eyeCascadeFilename1);
+		printf("ERROR: Could not load eyeCascade1 Detection cascade classifier %s.\n", eyeCascadeFilename1);
 		exit(1);
 	}
 
-	faceCascade.load(eyeCascadeFilename2);
-	if (faceCascade.empty())
+	eyeCascade2.load(eyeCascadeFilename2);
+	if (eyeCascade2.empty())
 	{
-		printf("ERROR: Could not load Face Detection cascade classifier %s.\n", eyeCascadeFilename2);
+		printf("ERROR: Could not load eyeCascade2 Detection cascade classifier %s.\n", eyeCascadeFilename2);
 		exit(1);
 	}
 }
@@ -174,15 +169,17 @@ void recognizeAndTrainUsingWebcam(VideoCapture& videoCapture, CascadeClassifier&
 		// 扑捉下一个相机框架。注意，不能修改相机帧。
 		Mat cameraFrame;
 		videoCapture >> cameraFrame;
+		//videoCapture.read( cameraFrame );
 		if (cameraFrame.empty())
 		{
 			printf("ERROR: Couldn't grab the next camera frame.\n");
 			exit(1);
 		}
-
+		
 		// 获取我们可以绘制的相机框架的副本
 		Mat displayedFrame;
 		cameraFrame.copyTo(displayedFrame);
+		//if (myDebug) printf("[myDebug][%s][%d] displayedFrame图像的宽度为： %d\n", __FILE__, __LINE__, displayedFrame.cols);;
 
 		// 对相机图像运行人脸识别系统。它会在给定的图像上绘制一些东西，所以要确保它不是只读内存
 		int identity = -1;
@@ -191,6 +188,48 @@ void recognizeAndTrainUsingWebcam(VideoCapture& videoCapture, CascadeClassifier&
 		Rect faceRect; // 检测到脸的位置。
 		Rect searchedLeftEye, searchedRightEye; // 脸部的左上和右上区域，也就是眼睛被搜索的区域
 		Point leftEye, rightEye; // 检测到的眼睛的位置
+		
+		// 得到均衡化之后的椭圆图像
+		Mat preprocessedFace = getProcessedFace(displayedFrame, faceWidth, faceCascade, eyeCascade1, eyeCascade2, \
+			preprocessLeftAndRightSeparately, &faceRect, &leftEye, &rightEye, &searchedLeftEye, &searchedRightEye);
+	
+		bool gotFaceAndEyes = false;
+		if (preprocessedFace.data)
+			gotFaceAndEyes = true;
+
+		// 在检测到的面部周围绘制抗锯齿矩形 并且画出眼睛的圆
+		if (faceRect.width > 0)
+		{
+			rectangle(displayedFrame, faceRect, Scalar(255, 255, 0), 2, CV_AA);
+			if (leftEye.x >= 0)
+				circle(displayedFrame, Point(faceRect.x + leftEye.x, faceRect.y + leftEye.y), 6, Scalar(0, 255, 255), 1, CV_AA);
+			if(rightEye.x >= 0)
+				circle(displayedFrame, Point(faceRect.x + rightEye.x, faceRect.y + rightEye.y), 6, Scalar(0, 255, 255), 1, CV_AA);
+		}
+		// duan
+		
+		
+
+		imshow(windowName, displayedFrame);
+
+		if ( myDebug ) {
+			Mat face;
+			if (faceRect.width > 0) {
+				printf("[myDebug][%s][%d]*****************************\n", __FILE__, __LINE__);
+				face = cameraFrame(faceRect);
+				if (searchedLeftEye.width > 0 && searchedRightEye.width > 0) {
+					Mat topLeftOfFace = face(searchedLeftEye);
+					Mat topRightOfFace = face(searchedRightEye);
+					imshow("Left", topLeftOfFace);
+					imshow("Right", topRightOfFace);
+				}
+			}
+			else
+				printf("[myDebug][%s][%d] ***********没有检测到人脸***********\n", __FILE__, __LINE__);
+		}
+
+		if (waitKey(20) == 27)
+			break;
 	}
 }
 
@@ -199,7 +238,10 @@ int main(int argc, char** argv)
 	CascadeClassifier faceCascade; // face
 	CascadeClassifier eyeCascade1;// eye
 	CascadeClassifier eyeCascade2;// glass eye
-	VideoCapture videoCapture; // 摄像头
+
+	// 相机设备编号
+	int cameraNumber = 0;
+	VideoCapture videoCapture(cameraNumber); // 摄像头
 
 	printf("Compiled with OpenCV version %s.\n", CV_VERSION);
 
@@ -207,9 +249,6 @@ int main(int argc, char** argv)
 	initDetectors(faceCascade, eyeCascade1, eyeCascade2);
 
 	printf("Hit 'Escape' in the GUI window to quit.\n");
-
-	// 相机设备编号
-	int cameraNumber = 0;
 
 	// 初始化摄像头
 	initWebcam(videoCapture, cameraNumber);
@@ -219,10 +258,13 @@ int main(int argc, char** argv)
 	namedWindow(windowName, WINDOW_AUTOSIZE);
 	setMouseCallback(windowName, onMouse, 0);
 
+	if (myDebug) printf("[myDebug][%s][%d] 开始人脸识别主程序...\n", __FILE__, __LINE__);
+
 	// 人脸识别，直到退出才停止运行该函数。
 	recognizeAndTrainUsingWebcam(videoCapture, faceCascade, eyeCascade1, eyeCascade2);
 
+	if (myDebug) printf("[myDebug][%s][%d] 人脸识别主程序退出...\n", __FILE__, __LINE__);
+
 	system("pause");
-	waitKey(0);
 	return 0;
 }

@@ -115,12 +115,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="detectObject.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="preprocessFace.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="haarcascade_eye.xml" />
     <Xml Include="haarcascade_eye_tree_eyeglasses.xml" />
     <Xml Include="lbpcascade_frontalface.xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="detectObject.h" />
+    <ClInclude Include="preprocessFace.h" />
+    <ClInclude Include="public.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
